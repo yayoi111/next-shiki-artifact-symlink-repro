@@ -189,6 +189,7 @@ jobs:
           printf '%s' "$deploy_output" > deploy-output.log
           sed -E 's#https://vercel.com/[^[:space:]"]+#<redacted-inspect-url>#g' \
             deploy-output.log > deploy-output-redacted.log
+          : > runtime-logs-redacted.log
 
           curl_url="$(
             node <<'NODE'
@@ -209,6 +210,29 @@ jobs:
 
           if [ "$http_status" -ge 500 ]; then
             echo "Runtime reproduced a server error."
+            pnpm dlx vercel@latest logs "$curl_url" \
+              --since 10m \
+              --status-code 500 \
+              --expand \
+              --limit 5 \
+              --scope "$VERCEL_SCOPE" \
+              --token "$VERCEL_TOKEN" \
+              --no-color > runtime-logs.log 2>&1 || true
+            sed -E \
+              -e 's#https://vercel.com/[^[:space:]"]+#<redacted-inspect-url>#g' \
+              -e 's#prj_[A-Za-z0-9]+#<redacted-project-id>#g' \
+              -e 's#team_[A-Za-z0-9]+#<redacted-team-id>#g' \
+              runtime-logs.log > runtime-logs-redacted.log
+            node <<'NODE'
+            const fs = require("node:fs");
+            const text = fs.readFileSync("runtime-logs-redacted.log", "utf8");
+            const interesting = text
+              .split(/\r?\n/)
+              .filter((line) =>
+                /Failed to prepare server|instrumentation hook|Failed to load external module|Cannot find module/.test(line),
+              );
+            for (const line of interesting) console.log(line);
+          NODE
             exit 1
           fi
 
@@ -222,6 +246,7 @@ jobs:
           retention-days: 1
           path: |
             deploy-output-redacted.log
+            runtime-logs-redacted.log
             response-body.txt
 
   inspect-tar-artifact:
