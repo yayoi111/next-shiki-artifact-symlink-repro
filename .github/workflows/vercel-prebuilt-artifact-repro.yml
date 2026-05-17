@@ -190,7 +190,7 @@ jobs:
           sed -E 's#https://vercel.com/[^[:space:]"]+#<redacted-inspect-url>#g' \
             deploy-output.log > deploy-output-redacted.log
 
-          deployment_url="$(
+          curl_url="$(
             node <<'NODE'
           const fs = require("node:fs");
           const text = fs.readFileSync("deploy-output.log", "utf8");
@@ -199,12 +199,12 @@ jobs:
             console.error("No deployment URL found in Vercel output");
             process.exit(1);
           }
-          console.log(urls[0]);
+          console.log(urls.at(-1));
           NODE
           )"
 
-          echo "deployment_url=$deployment_url"
-          http_status="$(curl -sS -o response-body.txt -w '%{http_code}' "$deployment_url/")"
+          echo "curl_url=$curl_url"
+          http_status="$(curl -sS -o response-body.txt -w '%{http_code}' "$curl_url/")"
           echo "http_status=$http_status"
 
           if [ "$http_status" -ge 500 ]; then
@@ -251,6 +251,13 @@ jobs:
       - name: Extract and inspect tarball
         run: |
           tar -xzf prebuilt-output-preserve-symlinks.tgz
-          node scripts/print-alias-state.mjs
-          node scripts/inspect-build-output.mjs
+          echo "Before pnpm install:"
+          node scripts/print-alias-state.mjs || true
+          node scripts/inspect-build-output.mjs || true
           find .next/node_modules -maxdepth 1 -mindepth 1 -exec ls -ld {} \;
+
+          pnpm install --frozen-lockfile
+
+          echo "After pnpm install:"
+          pnpm print:alias-state
+          pnpm inspect:build-output
