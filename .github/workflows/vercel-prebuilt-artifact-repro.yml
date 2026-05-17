@@ -1,0 +1,256 @@
+name: Vercel Prebuilt Artifact Repro
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_raw_artifact:
+        description: Deploy the downloaded raw artifact and curl the result
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22"
+  PNPM_VERSION: "9.12.1"
+  VERCEL_SCOPE: tomoya-kusamas-projects
+
+jobs:
+  build:
+    name: Build Vercel Output
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Link Vercel project from secrets
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+
+          for (const name of ["VERCEL_ORG_ID", "VERCEL_PROJECT_ID"]) {
+            if (!process.env[name]) throw new Error(`${name} is not configured`);
+          }
+
+          fs.mkdirSync(".vercel", { recursive: true });
+          fs.writeFileSync(
+            ".vercel/project.json",
+            JSON.stringify(
+              {
+                orgId: process.env.VERCEL_ORG_ID,
+                projectId: process.env.VERCEL_PROJECT_ID,
+              },
+              null,
+              2,
+            ),
+          );
+          NODE
+
+      - name: Show versions
+        run: |
+          node -v
+          pnpm -v
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Vercel prebuilt output
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          pnpm dlx vercel@latest build --prod --yes \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN"
+
+      - name: Inspect build-side aliases
+        run: |
+          pnpm print:alias-state
+          pnpm inspect:build-output
+          find .next/node_modules -maxdepth 1 -mindepth 1 -exec ls -ld {} \;
+
+      - name: Upload raw prebuilt output
+        uses: actions/upload-artifact@v4
+        with:
+          name: raw-prebuilt-output
+          include-hidden-files: true
+          retention-days: 1
+          path: |
+            .next
+            !.next/cache
+            .vercel/output
+            package.json
+            pnpm-lock.yaml
+            scripts
+
+      - name: Create symlink-preserving tarball
+        run: |
+          tar --exclude='.next/cache' \
+            -czf prebuilt-output-preserve-symlinks.tgz \
+            .next .vercel/output package.json pnpm-lock.yaml scripts
+
+      - name: Upload symlink-preserving tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: tar-prebuilt-output
+          retention-days: 1
+          path: prebuilt-output-preserve-symlinks.tgz
+
+  inspect-raw-artifact:
+    name: Inspect Raw Artifact
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    needs: [build]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Download raw prebuilt output
+        uses: actions/download-artifact@v4
+        with:
+          name: raw-prebuilt-output
+          path: .
+
+      - name: Inspect immediately after artifact download
+        run: |
+          node scripts/print-alias-state.mjs
+          node scripts/inspect-build-output.mjs
+          find .next/node_modules -maxdepth 1 -mindepth 1 -exec ls -ld {} \;
+
+      - name: Install dependencies for prebuilt deploy
+        run: pnpm install --frozen-lockfile
+
+      - name: Link Vercel project from secrets
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+
+          for (const name of ["VERCEL_ORG_ID", "VERCEL_PROJECT_ID"]) {
+            if (!process.env[name]) throw new Error(`${name} is not configured`);
+          }
+
+          fs.mkdirSync(".vercel", { recursive: true });
+          fs.writeFileSync(
+            ".vercel/project.json",
+            JSON.stringify(
+              {
+                orgId: process.env.VERCEL_ORG_ID,
+                projectId: process.env.VERCEL_PROJECT_ID,
+              },
+              null,
+              2,
+            ),
+          );
+          NODE
+
+      - name: Inspect after install
+        run: |
+          pnpm print:alias-state
+          pnpm inspect:build-output
+
+      - name: Deploy downloaded raw artifact and curl
+        if: ${{ inputs.deploy_raw_artifact }}
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          deploy_output="$(
+            pnpm dlx vercel@latest deploy --prebuilt --archive=tgz --prod --yes \
+              --scope "$VERCEL_SCOPE" \
+              --token "$VERCEL_TOKEN" 2>&1
+          )"
+          printf '%s' "$deploy_output" > deploy-output.log
+          sed -E 's#https://vercel.com/[^[:space:]"]+#<redacted-inspect-url>#g' \
+            deploy-output.log > deploy-output-redacted.log
+
+          deployment_url="$(
+            node <<'NODE'
+          const fs = require("node:fs");
+          const text = fs.readFileSync("deploy-output.log", "utf8");
+          const urls = [...text.matchAll(/https:\/\/[^\s"]+\.vercel\.app/g)].map((match) => match[0]);
+          if (urls.length === 0) {
+            console.error("No deployment URL found in Vercel output");
+            process.exit(1);
+          }
+          console.log(urls[0]);
+          NODE
+          )"
+
+          echo "deployment_url=$deployment_url"
+          http_status="$(curl -sS -o response-body.txt -w '%{http_code}' "$deployment_url/")"
+          echo "http_status=$http_status"
+
+          if [ "$http_status" -ge 500 ]; then
+            echo "Runtime reproduced a server error."
+            exit 1
+          fi
+
+          echo "Runtime did not reproduce a server error."
+
+      - name: Upload raw deploy diagnostics
+        if: ${{ always() && inputs.deploy_raw_artifact }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: raw-deploy-diagnostics
+          retention-days: 1
+          path: |
+            deploy-output-redacted.log
+            response-body.txt
+
+  inspect-tar-artifact:
+    name: Inspect Symlink-Preserving Tar
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    needs: [build]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Download symlink-preserving tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: tar-prebuilt-output
+          path: .
+
+      - name: Extract and inspect tarball
+        run: |
+          tar -xzf prebuilt-output-preserve-symlinks.tgz
+          node scripts/print-alias-state.mjs
+          node scripts/inspect-build-output.mjs
+          find .next/node_modules -maxdepth 1 -mindepth 1 -exec ls -ld {} \;
