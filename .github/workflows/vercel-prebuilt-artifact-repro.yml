@@ -88,7 +88,7 @@ jobs:
         with:
           name: raw-prebuilt-output
           include-hidden-files: true
-          retention-days: 1
+          retention-days: 7
           path: |
             .next
             !.next/cache
@@ -107,7 +107,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: tar-prebuilt-output
-          retention-days: 1
+          retention-days: 7
           path: prebuilt-output-preserve-symlinks.tgz
 
   inspect-raw-artifact:
@@ -249,7 +249,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: raw-deploy-diagnostics
-          retention-days: 1
+          retention-days: 7
           path: |
             deploy-output-redacted.log
             runtime-logs-redacted.log
