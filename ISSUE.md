@@ -87,7 +87,6 @@ Relevant Packages:
   react-dom: 19.2.4
   @sentry/nextjs: 10.52.0
   shiki: 3.23.0
-  @streamdown/code: 1.1.1
 Deployment:
   Vercel prebuilt deployment
   vercel deploy --prebuilt --archive=tgz
