@@ -1,0 +1,33 @@
+{
+  "name": "next-shiki-artifact-symlink-repro",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.12.1",
+  "engines": {
+    "node": ">=22.12 <23"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "build:webpack": "next build --webpack",
+    "start": "next start",
+    "inspect:build-output": "node scripts/inspect-build-output.mjs",
+    "print:alias-state": "node scripts/print-alias-state.mjs",
+    "prepare:missing-alias-artifact": "node scripts/prepare-missing-alias-artifact.mjs"
+  },
+  "dependencies": {
+    "@sentry/nextjs": "10.52.0",
+    "@streamdown/code": "1.1.1",
+    "next": "16.2.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "shiki": "3.23.0",
+    "streamdown": "2.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "typescript": "5.9.3"
+  }
+}

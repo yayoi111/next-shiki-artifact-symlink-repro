@@ -1,0 +1,9 @@
+.next
+.vercel
+.matrix-results
+node_modules
+*.log
+pnpm-debug.log*
+package-lock.json
+yarn.lock
+*.tsbuildinfo

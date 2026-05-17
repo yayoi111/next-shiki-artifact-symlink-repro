@@ -1,0 +1,90 @@
+name: Artifact Symlink Repro
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build and Inspect
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Show versions
+        run: |
+          node -v
+          pnpm -v
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build with Turbopack
+        run: pnpm build
+
+      - name: Inspect build-side aliases
+        run: |
+          pnpm print:alias-state
+          pnpm inspect:build-output || true
+
+      - name: Upload raw build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: next-build
+          include-hidden-files: true
+          retention-days: 1
+          path: |
+            .next
+            !.next/cache
+            package.json
+            pnpm-lock.yaml
+            scripts
+
+  consume:
+    name: Download and Inspect
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    needs: [build]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Download raw build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: next-build
+          path: .
+
+      - name: Inspect immediately after artifact download
+        run: |
+          node scripts/print-alias-state.mjs || true
+          find .next/node_modules -maxdepth 1 -ls || true
+
+      - name: Install dependencies after download
+        run: pnpm install --frozen-lockfile
+
+      - name: Inspect after install
+        run: |
+          pnpm print:alias-state
+          pnpm inspect:build-output || true
