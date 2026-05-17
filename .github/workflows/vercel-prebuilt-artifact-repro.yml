@@ -213,7 +213,6 @@ jobs:
             for attempt in 1 2 3 4 5; do
               pnpm dlx vercel@latest logs "$curl_url" \
                 --since 10m \
-                --status-code 500 \
                 --expand \
                 --limit 5 \
                 --scope "$VERCEL_SCOPE" \
