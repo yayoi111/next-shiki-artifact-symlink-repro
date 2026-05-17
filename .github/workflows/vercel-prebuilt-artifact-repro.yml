@@ -210,14 +210,21 @@ jobs:
 
           if [ "$http_status" -ge 500 ]; then
             echo "Runtime reproduced a server error."
-            pnpm dlx vercel@latest logs "$curl_url" \
-              --since 10m \
-              --status-code 500 \
-              --expand \
-              --limit 5 \
-              --scope "$VERCEL_SCOPE" \
-              --token "$VERCEL_TOKEN" \
-              --no-color > runtime-logs.log 2>&1 || true
+            for attempt in 1 2 3 4 5; do
+              pnpm dlx vercel@latest logs "$curl_url" \
+                --since 10m \
+                --status-code 500 \
+                --expand \
+                --limit 5 \
+                --scope "$VERCEL_SCOPE" \
+                --token "$VERCEL_TOKEN" \
+                --no-color > runtime-logs.log 2>&1 || true
+              if ! grep -q "No logs found" runtime-logs.log; then
+                break
+              fi
+              echo "Runtime logs are not indexed yet; retrying ($attempt/5)."
+              sleep 5
+            done
             sed -E \
               -e 's#https://vercel.com/[^[:space:]"]+#<redacted-inspect-url>#g' \
               -e 's#prj_[A-Za-z0-9]+#<redacted-project-id>#g' \
